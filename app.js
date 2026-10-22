@@ -79,23 +79,20 @@ const LANG_COLORS = {
 
 function createProfileCard(user) {
   const displayName = user.name || user.login;
-  const bio = user.bio || "No bio yet - portfolios need one!";
+  const bio = user.bio || "No bio yet - Portfolios need one!";
 
-  const newDiv = document.createElement("div");
+  const profileCard = document.createElement("div");
+  profileCard.innerHTML = `<img src="${user.avatar_url}" alt="${displayName}" />
+       <h3>${displayName}</h3>
+       <p class="login">${user.login}</p>
+       <p class="bio">${bio}</p>
+       <p class="stats">
+         <span class="counter">${user.followers}</span> followers ·
+         <span class="counter">${user.following}</span> following ·
+         <span class="counter">${user.public_repos}</span> repos
+       </p>`;
 
-  newDiv.innerHTML = `
-   <img src="${user.avatar_url}" alt="${displayName}" />
-        <h3>${displayName}</h3>
-        <p class="login">${user.login}</p>
-        <p class="bio">${bio}</p>
-        <p class="stats">
-          <span class="counter">${user.followers}</span> followers ·
-          <span class="counter">${user.following}</span> following ·
-          <span class="counter">${user.public_repos}</span> repos
-        </p>
-  `;
-
-  return newDiv;
+  return profileCard;
 }
 
 // TASK 2 — createRepoRow (component function)
@@ -133,6 +130,37 @@ function createProfileCard(user) {
 //      `
 //   7. return the li
 
+function createRepoRow(repo) {
+  const language = repo.language || "unknown";
+  const dotColor = LANG_COLORS[language] || "#a3a3a3";
+  const updated = new Date(repo.updated_at).toLocaleDateString();
+  const description = repo.description || "No description";
+
+  let badges = "";
+  if (!repo.description) {
+    badges += `<span class="warn-badge">no description</span>`;
+  }
+  if (!repo.homepage) {
+    badges += `<span class="warn-badge>no live link</span>`;
+  }
+
+  const repoRow = document.createElement("li");
+  repoRow.className = "repo-row";
+  repoRow.innerHTML = `<div class="repo-top">
+      <span class="repo-name">${repo.name}</span>
+      ${badges}
+    </div>
+    <p class="desc">${description}</p>
+    <div class="meta">
+      <span>
+        <span class="lang-dot" style="background:${dotColor}"></span>${language}
+      </span>
+      <span>Updated ${updated}</span>
+    </div>`;
+
+  return repoRow;
+}
+
 // TASK 3 — renderReport (the "checks" box)
 // Declare a function called renderReport.
 // Parameter: repos (the array)
@@ -165,6 +193,34 @@ function createProfileCard(user) {
 //    </div>
 //  `
 
+function renderReport(repos) {
+  const missingDesc = repos.filter((repo) => !repo.description).length;
+  const missingLink = repos.filter((repo) => !repo.homepage).length;
+
+  const hasEnoughRepos = repos.length >= 3;
+  const allDescribed = missingDesc === 0;
+  const allDeployed = missingLink === 0;
+
+  const isReady = hasEnoughRepos && allDescribed && allDeployed;
+
+  const portfolioReport = document.querySelector("#portfolio-report");
+  portfolioReport.innerHTML = `<div class="report">
+     <h3>Portfolio checks</h3>
+     <p class="check-item ${hasEnoughRepos ? "pass" : "fail"}">
+       ${hasEnoughRepos ? "✓" : "✗"} At least 3 public repos (${repos.length})
+     </p>
+     <p class="check-item ${allDescribed ? "pass" : "fail"}">
+       ${allDescribed ? "✓" : "✗"} Every repo has a description (${missingDesc} missing)
+     </p>
+     <p class="check-item ${allDeployed ? "pass" : "fail"}">
+       ${allDeployed ? "✓" : "✗"} Every repo has a live link (${missingLink} missing)
+     </p>
+     <p class="verdict ${isReady ? "ready" : "not-ready"}">
+       ${isReady ? "✓ All checks passed — portfolio-ready!" : "● Some checks failed — fix the ✗ items and re-run"}
+     </p>
+   </div>`;
+}
+
 // TASK 4 — the fetches (profile first, THEN repos)
 // Declare a function called fetchRepos.
 // Parameter: username
@@ -178,6 +234,28 @@ function createProfileCard(user) {
 //      - clear #repo-list, forEach → appendChild(createRepoRow(repo))
 //   4. .catch → #github-status: `❌ ${error.message}` / "status error"
 //
+
+function fetchRepos(username) {
+  fetch(
+    `https://api.github.com/users/${username}/repos?sort=updated&per_page=10`,
+  )
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("Could not load repos");
+      } else return response.json();
+    })
+    .then((repoData) => {
+      renderReport(repoData);
+      const reportRepo = document.querySelector("#repo-list");
+      reportRepo.innerHTML = "";
+      repoData.forEach((repo) => reportRepo.append(createRepoRow(repo)));
+    })
+    .catch((error) => {
+      const status = document.querySelector("#github-status");
+      status.textContent = `❌ ${error.message}`;
+      status.className = "status error";
+    });
+}
 
 // Then declare a function called checkProfile.
 // No parameters.
@@ -203,11 +281,57 @@ function createProfileCard(user) {
 //
 // Test: your own username · "torvalds" · "no-such-user-xyz-123"
 
+function checkProfile() {
+  const username = document.querySelector("#username-input").value.trim();
+  const status = document.querySelector("#github-status");
+  status.textContent = "Checking profile...";
+  status.className = "status loading";
+
+  if (!username) {
+    return;
+  }
+
+  const profileCard = document.querySelector("#profile-card");
+  const portfolioReport = document.querySelector("#portfolio-report");
+  const repoList = document.querySelector("#repo-list");
+  profileCard.innerHTML = "";
+  portfolioReport.innerHTML = "";
+  repoList.innerHTML = "";
+
+  fetch(`https://api.github.com/users/${username}`)
+    .then((response) => {
+      if (response.status === 404) {
+        throw new Error(`No Github user called "${username}"`);
+      } else if (response.status === 403) {
+        throw new Error("Rate limit hit (60/hour per IP) — wait a bit");
+      } else if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      } else return response.json();
+    })
+    .then((user) => {
+      status.textContent = `✓ Found ${user.login}`;
+      status.className = "status success";
+      profileCard.append(createProfileCard(user));
+      fetchRepos(username);
+    })
+    .catch((error) => {
+      const status = document.querySelector("#github-status");
+      status.textContent = `❌ ${error.message}`;
+      status.className = "status error";
+    });
+}
+
 // TASK 5 — wire up the form
 // handleGithubSubmit(event) → preventDefault + checkProfile()
 // Wire it to #github-form's submit event.
 
+function handleGithubSubmit(event) {
+  event.preventDefault();
+  checkProfile();
+}
 // wire up the form listener here
+const submit = document.querySelector("#github-form");
+submit.addEventListener("submit", handleGithubSubmit);
 
 // ----------------------------------------------------------
 // ⭐ STRETCH GOAL — the language breakdown
@@ -218,6 +342,26 @@ function createProfileCard(user) {
 // gives you the non-null languages. Count them with a forEach
 // into an object: counts[lang] = (counts[lang] || 0) + 1
 // — bracket notation with a variable key, again.
+
+function renderLanguageBreakdown(repos) {
+  const counts = {};
+  repos
+    .map((repo) => repo.language)
+    .filter(Boolean)
+    .forEach((lang) => {
+      counts[lang] = (counts[lang] || 0) + 1;
+    });
+
+  const parts = [];
+  for (const lang in counts) {
+    parts.push(`${lang} ${counts[lang]}`);
+  }
+
+  const p = document.createElement("p");
+  p.className = "status";
+  p.textContent = parts.join(" . ");
+  document.querySelector("#porfolio-report").append(p);
+}
 
 // ============================================================
 // 📝 WHAT THIS PROJECT DRILLED
